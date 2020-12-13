@@ -19,6 +19,8 @@ public class WebScrapeBankOfChina  {
     private HtmlPage page;
     private HtmlInput startDateInput;
     private HtmlInput endDateInput;
+    private HtmlInput currencyInput;
+    private HtmlInput pageNumberInput;
     private HtmlSelect currencySelection;
     private HtmlTable currencyTable;
     private HtmlElement pageNumber;
@@ -34,7 +36,7 @@ public class WebScrapeBankOfChina  {
     }
 
     //client get request to server
-    public void getHtmlPage (String baseURL){
+    private void getHtmlPage (String baseURL){
         try {
             page = client.getPage(baseURL);
         }catch(Exception e){
@@ -44,56 +46,59 @@ public class WebScrapeBankOfChina  {
     }//end method
 
     //find all form elements using XPath
-    public void findAllFormElements() throws ElementNotFoundException{
-        startDateInput = page.getFirstByXPath("//form//input[@name='erectDate']");
-        endDateInput = page.getFirstByXPath("//form//input[@name='nothing']");
+    private void findAllFormElements() throws ElementNotFoundException{
+        startDateInput = page.getFirstByXPath("//form[@name='pageform']//input[@name='erectDate']");
+        endDateInput = page.getFirstByXPath("//form[@name='pageform']//input[@name='nothing']");
+        currencyInput = page.getFirstByXPath("//form[@name='pageform']//input[@name='pjname']");
+        pageNumberInput=page.getFirstByXPath("//form[@name='pageform']//input[@name='page']");
     }//end method
 
     //find currency selection using XPath
-    public void findCurrencySelection() throws ElementNotFoundException {
+    private void findCurrencySelection() throws ElementNotFoundException {
        currencySelection = page.getHtmlElementById("pjname");
     }//end method
 
-    //find currency table using XPath
-    public void findCurrencyTable() throws ElementNotFoundException{
+
+    //find currency table using XPath, if there is relevant data return true
+    private boolean findCurrencyTable() throws ElementNotFoundException{
+        //find HTML element
         currencyTable=page.getFirstByXPath("/html/body/table[2]");
+
+        //check if it contains currency data
+        if (isEmptyCurrencyTable())
+            return false;
+
+        return true;
     }//end method
 
+
+    //check if currencyTable has data
+    private boolean isEmptyCurrencyTable(){
+        if(currencyTable.asText().contains("sorry, no records"))
+            return true;
+        return false;
+    }
+
+
     //find all elements required for page numbering using XPath
-    public void findPageNumberElement() throws ElementNotFoundException{
+    private void findPageNumberElement() throws ElementNotFoundException{
         pageNumber= page.getFirstByXPath("//table//span[@class='nav_pagenum']");
     }//end method
 
-    //find all elements required for page numbering using XPath
-    public void findNextPageElement() throws ElementNotFoundException{
-        nextPage=page.getAnchorByText("Next");
-    }//end method
-
-    //find all elements that needs to be submit
-    public void findAllInputElements(){
-        findAllFormElements();
-        findCurrencySelection();
-    }
-
     //fill all form elements
-    public void fillForm(LocalDate startDay, LocalDate endDay, String currency){
-
-        //filling form fields
+    public void fillForm(LocalDate startDay, LocalDate endDay, String currency, String pageNumber){
         startDateInput.setValueAttribute(startDay.toString());
         endDateInput.setValueAttribute(endDay.toString());
-
-        //select currency
-        HtmlOption option = currencySelection.getOptionByValue(currency);
-        currencySelection.setSelectedAttribute(option, true);
-
+        currencyInput.setValueAttribute(currency);
+        pageNumberInput.setValueAttribute(pageNumber);
     }//end method
+
 
     //submit Form: first select the enclosing Form, then generate Post request
     public void submit(){
         HtmlForm form= startDateInput.getEnclosingForm();
         try {
             page=client.getPage(form.getWebRequest(null));
-            //System.out.println(page.asXml());
         }catch (Exception e){
             System.out.println("Unable to load new page!");
             System.exit(0);
@@ -105,6 +110,7 @@ public class WebScrapeBankOfChina  {
     public LinkedList<String> readCurrencyList(){
         LinkedList currencies=new LinkedList<>();
 
+        findCurrencySelection();
         //return all selection options
         List<HtmlOption> options=currencySelection.getOptions();
         for (HtmlOption item: options){
@@ -117,16 +123,9 @@ public class WebScrapeBankOfChina  {
         return currencies;
     }//end method
 
-    //check if currencyTable has data
-    public boolean isEmptyCurrencyTable(){
-        if(currencyTable.asText().contains("sorry, no records"))
-            return true;
-        return false;
-    }
-
 
     //iterate through table and insert cells value in tableCurrencyRecord
-    public void readTablePage (boolean header, TableCurrencyStockRecord tableRecords){
+    private void readTable (boolean header, TableCurrencyStockRecord tableRecords){
 
         //iterate through table rows
         for(HtmlTableRow row: currencyTable.getRows()) {
@@ -160,63 +159,34 @@ public class WebScrapeBankOfChina  {
     }//end method
 
 
+    public TableCurrencyStockRecord search (LocalDate startDay, LocalDate endDay, String currency){
+        TableCurrencyStockRecord table=new TableCurrencyStockRecord();
 
-    public TableCurrencyStockRecord readAllTablePages (boolean header) {
-        try {
-            TableCurrencyStockRecord tableRecords = new TableCurrencyStockRecord();
-            int numberOfPages;
+        int numberOfPages=1;
+        int page=1;
 
-            //find currency table from new getPage
-            findCurrencyTable();
+        //initialize input form elements
+        findAllFormElements();
 
-            //check if it is empty, then return NULL
-            if (isEmptyCurrencyTable())
+        while (numberOfPages >= page) {
+            fillForm(startDay, endDay, currency, Integer.toString(page));
+            submit();
+
+            if (!findCurrencyTable())
                 return null;
 
-            //find all elements for iterating through pages
-            findPageNumberElement();
-            findNextPageElement();
-            numberOfPages=Integer.valueOf(pageNumber.asText());  //can throw NumberFormatException
-
-            //go through all pages
-            while (numberOfPages > 0) {
-
-                readTablePage(header, tableRecords);
-
-                //read header only once
-                if (header)
-                    header=false;
-
-                //click on next page, returns new page
-                page = nextPage.click();
-                //decrease numberOfPages
-                numberOfPages--;
-
-                //find currency table and Next from new getPage
-                findCurrencyTable();
-                findNextPageElement();
+            if (page == 1) {
+                readTable(true, table);
+                findPageNumberElement();
+                numberOfPages = Integer.valueOf(pageNumber.asText());
+            } else {
+                readTable(false, table);
             }
-            return tableRecords;
+            page++;
+        }
+        return table;
+    }
 
-        }catch(IOException e)
-        {
-            return null;
-        }catch (NumberFormatException e){
-            return null;
-        }
-        catch (JavaScriptException e)
-        {
-            System.out.println("JavaScript Error, application is not able to read data from web page. Please run it again.");
-            System.exit(-1);
-            return null;
-        }
-        catch (Exception e){
-            System.out.println("Application is not able to read data from web page. Please run it again.");
-            System.exit(-1);
-            return null;
-        }
-
-    }//end method
 
 
 }//end class

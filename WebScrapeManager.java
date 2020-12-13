@@ -15,7 +15,7 @@ public class WebScrapeManager {
     final LocalDate startDay=LocalDate.now().minusDays(2);
 
     private WebScrapeBankOfChina client;
-    private TableCurrencyStockRecord tableRecords;
+    //private TableCurrencyStockRecord tableRecords;
     private OutputFile outputFile;
     private LinkedList<String> currencies;
     private String pathOfOutputDirectory;
@@ -24,7 +24,7 @@ public class WebScrapeManager {
         //status message
         System.out.println("Application is connecting to the web page of BankOfChina. It takes a few seconds..");
         client=new WebScrapeBankOfChina();
-        tableRecords=new TableCurrencyStockRecord();
+        //tableRecords=new TableCurrencyStockRecord();
         this.pathOfOutputDirectory=pathOfOutputDirectory;
     }
 
@@ -35,16 +35,16 @@ public class WebScrapeManager {
         System.out.println("It is connected. Reading data.");
 
         readCurrencyList();
+
         try {
             //submit form for every currency from the list
             for (String cur: currencies) {
-
+                TableCurrencyStockRecord tableRecords;
                 //submit input form
-                submitRequest(cur);
-                tableRecords=client.readAllTablePages(true);
-
+                //submitRequest(cur, pageNumber);
+                tableRecords=readData(cur);
                 if (tableRecords!=null)
-                    writeToFile(cur);
+                    writeToFile(tableRecords, cur);
                 else System.out.println("For currency "+cur+" there is no available data!"); //status message
             }
         }catch (ElementNotFoundException e)
@@ -53,29 +53,26 @@ public class WebScrapeManager {
         }
     }//end method
 
-    public void writeToFile(String currency){
-        if(writeTable(currency))
+    public void writeToFile(TableCurrencyStockRecord table, String currency){
+        if(writeTable(table, currency))
             System.out.println("Output file for currency "+currency+" created!"); //status message
         else System.out.println("File for currency "+currency+" can not be created."); //status message
     }
 
     //read all currencies from the currency selection HtmlElement
     public void readCurrencyList(){
-        client.findCurrencySelection();
         currencies=client.readCurrencyList();
     }//end method
 
-    //submit input form with all necessary data: startDay, endDay, currency
-    public void submitRequest(String currency){
-        client.findAllInputElements();
-        client.fillForm(startDay, endDay, currency);
-        client.submit();
+
+    //read data
+    public TableCurrencyStockRecord readData(String currency){
+        return client.search(startDay, endDay, currency );
     }
 
 
-
     //write table to output file
-    public boolean writeTable(String currency){
+    public boolean writeTable(TableCurrencyStockRecord tableRecords, String currency){
         //create file on provided path
         outputFile=new OutputTxtFile(Paths.get(pathOfOutputDirectory),currency+startDay.toString()+endDay.toString());
 
